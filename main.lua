@@ -25,15 +25,59 @@ if makefolder and isfolder then
 end
 
 -- Global States
-local GlobalTransparency = 0 
+local GlobalTransparency = 0
 local AutoExecuteEnabled = true -- Default enabled
 local ScriptRawUrl = "https://example.com/replace-with-your-script.lua" -- Temporary default: replace with your raw script URL
 local CurrentThemeKey = "Default"
+local DefaultConfigName = "TempConfig"
+local LastConfigFile = ConfigFolder .. "/LastConfig.json"
 
 local function HasPlaceholderScriptUrl(url)
     if type(url) ~= "string" then return true end
     local trimmed = string.gsub(url, "%s+", "")
     return trimmed == "" or string.lower(trimmed) == "your_script_raw_url_here" or string.find(string.lower(trimmed), "example.com/replace-with-your-script.lua") ~= nil
+end
+
+local function GetConfigState()
+    return {
+        Theme = CurrentThemeKey,
+        Transparency = GlobalTransparency,
+        AutoExecute = AutoExecuteEnabled,
+        ConfigName = DefaultConfigName
+    }
+end
+
+local function ApplyConfigState(data)
+    if type(data) ~= "table" then return false end
+
+    if data.Theme and Themes[data.Theme] then
+        CurrentThemeKey = data.Theme
+        ApplyTheme(CurrentThemeKey)
+    else
+        ApplyTheme("Default")
+    end
+
+    if data.Transparency ~= nil then
+        GlobalTransparency = math.clamp(tonumber(data.Transparency) or 0, 0, 0.85)
+        if FillTrackUI then FillTrackUI() end
+        ApplyTheme("Current")
+    end
+
+    if data.AutoExecute ~= nil then
+        AutoExecuteEnabled = data.AutoExecute == true
+        if RegisterTeleportQueue then
+            RegisterTeleportQueue(AutoExecuteEnabled)
+        end
+        if UpdateToggleUI then UpdateToggleUI() end
+    end
+
+    return true
+end
+
+local function SaveLastConfig(data)
+    if writefile then
+        writefile(LastConfigFile, HttpService:JSONEncode(data))
+    end
 end
 
 -- Helper Function for Queueing Teleport
@@ -911,7 +955,7 @@ ConfigInput.Size = UDim2.new(1, -20, 0, 28)
 ConfigInput.Position = UDim2.new(0, 10, 0, 10)
 ConfigInput.PlaceholderText = "Type config name..."
 ConfigInput.PlaceholderColor3 = Color3.fromRGB(110, 130, 150)
-ConfigInput.Text = "TempConfig"
+ConfigInput.Text = DefaultConfigName
 ConfigInput.Font = Enum.Font.Gotham
 ConfigInput.TextSize = 11
 ConfigInput.ClearTextOnFocus = false
@@ -980,22 +1024,17 @@ RegisterUI(ConfigStatusLbl, "TextColor3", "TextSecondary")
 
 -- Config Logic
 local function SaveConfigData(configName)
-    if configName == "" then
-        ConfigStatusLbl.Text = "⚠️ Please enter a config name."
-        ConfigStatusLbl.TextColor3 = Color3.fromRGB(220, 150, 50)
-        return
-    end
+    local targetName = configName and configName ~= "" and configName or DefaultConfigName
+    local data = GetConfigState()
+    data.ConfigName = targetName
 
-    local data = {
-        Theme = CurrentThemeKey,
-        Transparency = GlobalTransparency,
-        AutoExecute = AutoExecuteEnabled
-    }
-
-    local filePath = ConfigFolder .. "/" .. configName .. ".json"
+    local filePath = ConfigFolder .. "/" .. targetName .. ".json"
     if writefile then
         writefile(filePath, HttpService:JSONEncode(data))
-        ConfigStatusLbl.Text = "✅ Saved: " .. configName
+        SaveLastConfig(data)
+        ConfigInput.Text = targetName
+        DefaultConfigName = targetName
+        ConfigStatusLbl.Text = "✅ Saved: " .. targetName
         ConfigStatusLbl.TextColor3 = Color3.fromRGB(80, 200, 120)
     else
         ConfigStatusLbl.Text = "❌ Executor does not support writefile."
@@ -1004,56 +1043,42 @@ local function SaveConfigData(configName)
 end
 
 local function LoadConfigData(configName)
-    if configName == "" then
-        ConfigStatusLbl.Text = "⚠️ Please enter a config name."
-        ConfigStatusLbl.TextColor3 = Color3.fromRGB(220, 150, 50)
-        return
-    end
-
-    local filePath = ConfigFolder .. "/" .. configName .. ".json"
+    local targetName = configName and configName ~= "" and configName or DefaultConfigName
+    local filePath = ConfigFolder .. "/" .. targetName .. ".json"
     if isfile and isfile(filePath) and readfile then
         local success, result = pcall(function()
             return HttpService:JSONDecode(readfile(filePath))
         end)
 
         if success and result then
-            if result.Theme then ApplyTheme(result.Theme) end
-            if result.Transparency ~= nil then 
-                GlobalTransparency = result.Transparency
-                if FillTrackUI then FillTrackUI() end
-                ApplyTheme("Current")
-            end
-            if result.AutoExecute ~= nil then 
-                AutoExecuteEnabled = result.AutoExecute
-                RegisterTeleportQueue(AutoExecuteEnabled)
-                if UpdateToggleUI then UpdateToggleUI() end
-            end
+            ApplyConfigState(result)
+            DefaultConfigName = targetName
+            ConfigInput.Text = targetName
+            SaveLastConfig(result)
 
-            ConfigStatusLbl.Text = "✅ Loaded: " .. configName
+            ConfigStatusLbl.Text = "✅ Loaded: " .. targetName
             ConfigStatusLbl.TextColor3 = Color3.fromRGB(80, 200, 120)
         else
             ConfigStatusLbl.Text = "❌ Corrupted config file."
             ConfigStatusLbl.TextColor3 = Color3.fromRGB(220, 80, 80)
         end
     else
-        ConfigStatusLbl.Text = "❌ Config '" .. configName .. "' not found."
+        ConfigStatusLbl.Text = "❌ Config '" .. targetName .. "' not found."
         ConfigStatusLbl.TextColor3 = Color3.fromRGB(220, 80, 80)
     end
 end
 
 local function DeleteConfigData(configName)
-    if configName == "" then
-        ConfigStatusLbl.Text = "⚠️ Please enter a config name."
-        ConfigStatusLbl.TextColor3 = Color3.fromRGB(220, 150, 50)
-        return
-    end
-
-    local filePath = ConfigFolder .. "/" .. configName .. ".json"
+    local targetName = configName and configName ~= "" and configName or DefaultConfigName
+    local filePath = ConfigFolder .. "/" .. targetName .. ".json"
     if isfile and isfile(filePath) and delfile then
         delfile(filePath)
-        ConfigStatusLbl.Text = "🗑️ Deleted: " .. configName
+        if isfile and isfile(LastConfigFile) then
+            delfile(LastConfigFile)
+        end
+        ConfigStatusLbl.Text = "🗑️ Deleted: " .. targetName
         ConfigStatusLbl.TextColor3 = Color3.fromRGB(220, 80, 80)
-        ConfigInput.Text = ""
+        ConfigInput.Text = DefaultConfigName
     else
         ConfigStatusLbl.Text = "❌ Could not delete or file missing."
         ConfigStatusLbl.TextColor3 = Color3.fromRGB(220, 80, 80)
@@ -1063,6 +1088,20 @@ end
 BtnSaveConfig.MouseButton1Click:Connect(function() SaveConfigData(ConfigInput.Text) end)
 BtnLoadConfig.MouseButton1Click:Connect(function() LoadConfigData(ConfigInput.Text) end)
 BtnDeleteConfig.MouseButton1Click:Connect(function() DeleteConfigData(ConfigInput.Text) end)
+
+local function AutoLoadLastSavedConfig()
+    if not (isfile and readfile and isfile(LastConfigFile)) then return end
+
+    local success, result = pcall(function()
+        return HttpService:JSONDecode(readfile(LastConfigFile))
+    end)
+
+    if success and result then
+        DefaultConfigName = result.ConfigName or DefaultConfigName
+        ConfigInput.Text = DefaultConfigName
+        ApplyConfigState(result)
+    end
+end
 
 -- 🔄 2. AUTO-EXECUTE TOGGLE SECTION
 local AutoExecHeader = Instance.new("TextLabel")
@@ -1312,3 +1351,4 @@ BtnClose.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
 
 -- Apply default theme on script startup
 ApplyTheme("Default")
+AutoLoadLastSavedConfig()
