@@ -27,14 +27,25 @@ end
 -- Global States
 local GlobalTransparency = 0 
 local AutoExecuteEnabled = true -- Default enabled
-local ScriptRawUrl = "YOUR_SCRIPT_RAW_URL_HERE" -- Replace with direct raw link
+local ScriptRawUrl = "https://example.com/replace-with-your-script.lua" -- Temporary default: replace with your raw script URL
 local CurrentThemeKey = "Default"
+
+local function HasPlaceholderScriptUrl(url)
+    if type(url) ~= "string" then return true end
+    local trimmed = string.gsub(url, "%s+", "")
+    return trimmed == "" or string.lower(trimmed) == "your_script_raw_url_here" or string.find(string.lower(trimmed), "example.com/replace-with-your-script.lua") ~= nil
+end
 
 -- Helper Function for Queueing Teleport
 local function RegisterTeleportQueue(enable)
     local queue_on_teleport = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport)
     if queue_on_teleport then
         if enable then
+            if HasPlaceholderScriptUrl(ScriptRawUrl) then
+                warn("BloopsHub: Auto-execute is enabled but ScriptRawUrl is still a placeholder. Replace it with your actual raw script URL to make server-hop re-execution work.")
+                return
+            end
+
             queue_on_teleport([[
                 repeat task.wait() until game:IsLoaded()
                 loadstring(game:HttpGet("]] .. ScriptRawUrl .. [["))()
@@ -900,7 +911,7 @@ ConfigInput.Size = UDim2.new(1, -20, 0, 28)
 ConfigInput.Position = UDim2.new(0, 10, 0, 10)
 ConfigInput.PlaceholderText = "Type config name..."
 ConfigInput.PlaceholderColor3 = Color3.fromRGB(110, 130, 150)
-ConfigInput.Text = ""
+ConfigInput.Text = "TempConfig"
 ConfigInput.Font = Enum.Font.Gotham
 ConfigInput.TextSize = 11
 ConfigInput.ClearTextOnFocus = false
